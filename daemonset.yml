@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-telemetry-agent
+  namespace: monitoring
+  labels:
+    app: gpu-telemetry-agent
+spec:
+  selector:
+    matchLabels:
+      app: gpu-telemetry-agent
+  template:
+    metadata:
+      labels:
+        app: gpu-telemetry-agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      hostNetwork: true
+      hostPID: true
+      nodeSelector:
+        # Only schedule on nodes with GPUs
+        nvidia.com/gpu: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: gpu-telemetry-agent
+        image: gpu-telemetry-agent:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        resources:
+          limits:
+            memory: 512Mi
+            cpu: 500m
+          requests:
+            memory: 256Mi
+            cpu: 100m
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+        volumeMounts:
+        - name: nvidia-devices
+          mountPath: /dev
+          readOnly: true
+        - name: nvidia-driver
+          mountPath: /usr/local/nvidia
+          readOnly: true
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"
+      volumes:
+      - name: nvidia-devices
+        hostPath:
+          path: /dev
+      - name: nvidia-driver
+        hostPath:
+          path: /usr/local/nvidia
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-telemetry-agent
+  namespace: monitoring
+  labels:
+    app: gpu-telemetry-agent
+spec:
+  clusterIP: None
+  selector:
+    app: gpu-telemetry-agent
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
